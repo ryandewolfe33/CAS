@@ -309,23 +309,57 @@ def _sparse_labels_to_numpy(labels_indptr, labels_indices, n_nodes):
     return new_labels
 
 
-class CASTransformer:
+class CASPostProcesser:
     def __init__(self, score="nief", threshold=0.5, max_per_round=100, max_rounds=1000, only_remove=True):
-        if score == "ief":
-            self.cas = _ief
-        elif score == "nief":
-            self.cas = _nief
-        elif score == "p":
-            raise ValueError("P not implemented yet") #TODO
-        else:
-            raise ValueError(f"Expected score to be one of 'ief', 'nief', or 'p'. Got {self.score}")
+        self.score=score
         self.threshold=threshold
         self.max_per_round=max_per_round
         self.max_rounds=max_rounds
         self.only_remove=only_remove
+    
+
+    def _validate_parameters(self):
+        if self.score == "ief":
+            self.cas = _ief
+        elif self.score == "nief":
+            self.cas = _nief
+        elif self.score == "p":
+            raise ValueError("P not implemented yet") #TODO
+        else:
+            raise ValueError(f"score must be in ['ief', 'nief', 'p']")
+         
+        if self.threshold < 0.0 or self.threshold > 1.0:
+            raise ValueError(f"threshold must be between 0.0 and 1.0")
+        
+        if not isinstance(self.max_per_round, int):
+            if self.max_per_round % 1 != 0:
+                raise ValueError(f"max_per_round must be a whole number")
+            try:
+                # convert other types of int to python int
+                self.threshold = int(self.threshold)
+            except ValueError:
+                raise ValueError("max_per_round must be a positive int")
+        if self.max_per_round < 1:
+            raise ValueError(f"max_per_round must be a positive")
+        
+        if not isinstance(self.max_rounds, int):
+            if self.max_rounds % 1 != 0:
+                raise ValueError("max_rounds must be a whole number")
+            try:
+                # convert other types of int to python int
+                self.max_rounds = int(self.max_rounds)
+            except ValueError:
+                raise ValueError("max_rounds must be an int")
+        if self.max_rounds < 1:
+            raise ValueError("max_rounds must be positive")
+        
+        if not isinstance(self.only_remove, bool):
+            raise ValueError("only_remove must be a bool")
+        
 
     
     def fit(self, labels, adjacency):
+        self._validate_parameters()
         return_as_numpy = False
         if isinstance(labels, np.ndarray):
             if labels.ndim != 1:
