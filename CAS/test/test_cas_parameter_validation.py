@@ -7,9 +7,9 @@ def test_cas_score(sbm_leiden):
     # Check implemented scores work
     cpp = CASPostProcesser(score="ief")
     cpp.fit(predict, adjacency)
-    cpp =CASPostProcesser(score="nief")
+    cpp = CASPostProcesser(score="nief")
     cpp.fit(predict, adjacency)
-    #TODO change when p is implemented
+    # TODO change when p is implemented
     cpp = CASPostProcesser(score="p")
     with pytest.raises(ValueError):
         cpp.fit(predict, adjacency)

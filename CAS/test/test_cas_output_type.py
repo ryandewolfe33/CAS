@@ -20,7 +20,7 @@ def test_cas_array_add_and_remove(sbm_leiden):
     cpp = CASPostProcesser(only_remove=False)
     out = cpp.fit_predict(predict, adjacency)
     assert isinstance(out, sp.csr_matrix)
-    assert out.shape == (np.max(predict)+1, len(predict))
+    assert out.shape == (np.max(predict) + 1, len(predict))
     assert all(out.data)
 
 
