@@ -1,6 +1,7 @@
 import numpy as np
 import scipy.sparse as sp
 from numba import njit, prange
+from numba_stats import binom
 
 
 @njit
@@ -106,6 +107,7 @@ def _nief(
     return max(in_community_degree / degree - label_volume, 0)
 
 
+@njit
 def _p(
     node,
     label,
@@ -116,8 +118,26 @@ def _p(
     adjacency_indices,
     adjacency_data,
 ):
-    # TODO
-    raise Exception("Method not yet implemented.")
+    degree = np.array(
+        [_get_degree(node, adjacency_indptr, adjacency_indices, adjacency_data)]
+    )
+    if degree[0] == 0:
+        return 0
+    in_community_degree = np.array(
+        [
+            _get_community_degree(
+                node,
+                label,
+                labels_indptr,
+                labels_indices,
+                adjacency_indptr,
+                adjacency_indices,
+                adjacency_data,
+            )
+        ]
+    )
+    p = binom._cdf(in_community_degree, degree, label_volume)[0]
+    return p
 
 
 @njit
@@ -443,7 +463,7 @@ class CASPostProcesser:
         elif self.score == "nief":
             self.cas = _nief
         elif self.score == "p":
-            raise ValueError("P not implemented yet")  # TODO
+            self.cas = _p
         else:
             raise ValueError(f"score must be in ['ief', 'nief', 'p']")
 
