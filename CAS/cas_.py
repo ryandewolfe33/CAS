@@ -447,12 +447,14 @@ class CASPostProcesser:
         max_per_round=100,
         max_rounds=1000,
         only_remove=True,
+        sparse_output=False
     ):
         self.score = score
         self.threshold = threshold
         self.max_per_round = max_per_round
         self.max_rounds = max_rounds
         self.only_remove = only_remove
+        self.sparse_output = sparse_output
 
     def _validate_parameters(self):
         if self.score == "ief":
@@ -491,6 +493,9 @@ class CASPostProcesser:
 
         if not isinstance(self.only_remove, bool):
             raise ValueError("only_remove must be a bool")
+
+        if not isinstance(self.sparse_output, bool):
+            raise ValueError("sparse_output must be a bool")
 
     def fit(self, labels, adjacency):
         self._validate_parameters()
@@ -555,7 +560,7 @@ class CASPostProcesser:
             True  # Sometime some entries are flipped to false, don't know why.
         )
 
-        if return_as_numpy:
+        if return_as_numpy and not self.sparse_output:
             labels = _sparse_labels_to_numpy(
                 labels.indptr, labels.indices, adjacency.shape[0]
             )
