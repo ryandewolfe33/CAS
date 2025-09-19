@@ -24,3 +24,6 @@ dependencies = [
     "numba >= 0.60.0",
     "numba-stats >= 1.9.0"
 ]
+
+[tool.setuptools]
+packages = ["CAS"]

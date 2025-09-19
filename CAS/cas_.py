@@ -118,14 +118,12 @@ def _p(
     adjacency_indices,
     adjacency_data,
 ):
-    degree = np.array(
-        [_get_degree(node, adjacency_indptr, adjacency_indices, adjacency_data)]
-    )
+    degree = np.empty(1, dtype="float64")
+    degree[0] = _get_degree(node, adjacency_indptr, adjacency_indices, adjacency_data)
     if degree[0] == 0:
         return 0
-    in_community_degree = np.array(
-        [
-            _get_community_degree(
+    in_community_degree = np.empty(1, dtype="float64")
+    in_community_degree[0] = _get_community_degree(
                 node,
                 label,
                 labels_indptr,
@@ -134,8 +132,7 @@ def _p(
                 adjacency_indices,
                 adjacency_data,
             )
-        ]
-    )
+
     p = binom._cdf(in_community_degree, degree, label_volume)[0]
     return p
 
