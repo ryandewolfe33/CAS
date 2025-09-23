@@ -124,14 +124,14 @@ def _p(
         return 0
     in_community_degree = np.empty(1, dtype="float64")
     in_community_degree[0] = _get_community_degree(
-                node,
-                label,
-                labels_indptr,
-                labels_indices,
-                adjacency_indptr,
-                adjacency_indices,
-                adjacency_data,
-            )
+        node,
+        label,
+        labels_indptr,
+        labels_indices,
+        adjacency_indptr,
+        adjacency_indices,
+        adjacency_data,
+    )
 
     p = binom._cdf(in_community_degree, degree, label_volume)[0]
     return p
@@ -447,7 +447,8 @@ class CASPostProcesser:
         max_per_round=100,
         max_rounds=1000,
         only_remove=True,
-        sparse_output=False
+        sparse_output=False,
+        relabel_clusters=True,
     ):
         self.score = score
         self.threshold = threshold
@@ -455,6 +456,7 @@ class CASPostProcesser:
         self.max_rounds = max_rounds
         self.only_remove = only_remove
         self.sparse_output = sparse_output
+        self.relabel_clusters = relabel_clusters
 
     def _validate_parameters(self):
         if self.score == "ief":
@@ -505,7 +507,7 @@ class CASPostProcesser:
                 raise ValueError(f"Expected 1d numpy array. Got {labels.ndim} dims.")
             labels_indptr, labels_indices, labels_data = _labels_array_to_matrix(labels)
             return_as_numpy = (
-                self.only_remove
+                self.only_remove and not self.sparse_output
             )  # If passed a numpy array and only removing, return a numpy array
         elif sp.issparse(labels):
             labels = labels.tocsr()
@@ -560,7 +562,12 @@ class CASPostProcesser:
             True  # Sometime some entries are flipped to false, don't know why.
         )
 
-        if return_as_numpy and not self.sparse_output:
+        if self.relabel_clusters:
+            non_empty_cluster = labels.getnnz(1) > 0
+            self.old_cluster_ids = np.arange(labels.shape[0])[non_empty_cluster]
+            labels = labels[non_empty_cluster]
+
+        if return_as_numpy:
             labels = _sparse_labels_to_numpy(
                 labels.indptr, labels.indices, adjacency.shape[0]
             )
