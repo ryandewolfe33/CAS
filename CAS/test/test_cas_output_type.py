@@ -6,7 +6,7 @@ from CAS import CASPostProcesser
 
 def test_cas_array_only_remove(sbm_leiden):
     adjacency, predict = sbm_leiden[0], sbm_leiden[1]
-    cpp = CASPostProcesser(only_remove=True)
+    cpp = CASPostProcesser(only_remove=True, relabel_clusters=False)
     out = cpp.fit_predict(predict, adjacency)
     assert isinstance(out, np.ndarray)
     assert out.ndim == 1
@@ -17,7 +17,7 @@ def test_cas_array_only_remove(sbm_leiden):
 
 def test_cas_array_only_remove_and_sparse(sbm_leiden):
     adjacency, predict = sbm_leiden[0], sbm_leiden[1]
-    cpp = CASPostProcesser(only_remove=True, sparse_output=True)
+    cpp = CASPostProcesser(only_remove=True, relabel_clusters=False, sparse_output=True)
     out = cpp.fit_predict(predict, adjacency)
     assert isinstance(out, sp.csr_matrix)
     assert out.shape == (np.max(predict) + 1, len(predict))
@@ -26,7 +26,7 @@ def test_cas_array_only_remove_and_sparse(sbm_leiden):
 
 def test_cas_array_add_and_remove(sbm_leiden):
     adjacency, predict = sbm_leiden[0], sbm_leiden[1]
-    cpp = CASPostProcesser(only_remove=False)
+    cpp = CASPostProcesser(only_remove=False, relabel_clusters=False)
     out = cpp.fit_predict(predict, adjacency)
     assert isinstance(out, sp.csr_matrix)
     assert out.shape == (np.max(predict) + 1, len(predict))
@@ -35,7 +35,7 @@ def test_cas_array_add_and_remove(sbm_leiden):
 
 def test_cas_sparse_only_remove(sbm_sparse):
     adjacency, predict = sbm_sparse[0], sbm_sparse[1]
-    cpp = CASPostProcesser(only_remove=True)
+    cpp = CASPostProcesser(only_remove=True, relabel_clusters=False)
     out = cpp.fit_predict(predict, adjacency)
     assert isinstance(out, sp.csr_matrix)
     assert out.shape == predict.shape
@@ -44,7 +44,7 @@ def test_cas_sparse_only_remove(sbm_sparse):
 
 def test_cas_sparse_add_and_remove(sbm_sparse):
     adjacency, predict = sbm_sparse[0], sbm_sparse[1]
-    cpp = CASPostProcesser(only_remove=False)
+    cpp = CASPostProcesser(only_remove=False, relabel_clusters=False)
     out = cpp.fit_predict(predict, adjacency)
     assert isinstance(out, sp.csr_matrix)
     assert out.shape == predict.shape

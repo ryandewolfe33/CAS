@@ -17,16 +17,6 @@ def test_cas_score(sbm_leiden):
         cpp.fit(predict, adjacency)
 
 
-def test_max_per_round(sbm_leiden):
-    adjacency, predict = sbm_leiden[0], sbm_leiden[1]
-    cpp = CASPostProcesser(max_per_round=-1)
-    with pytest.raises(ValueError):
-        cpp.fit(predict, adjacency)
-    cpp = CASPostProcesser(max_per_round=3.5)
-    with pytest.raises(ValueError):
-        cpp.fit(predict, adjacency)
-
-
 def test_max_rounds(sbm_leiden):
     adjacency, predict = sbm_leiden[0], sbm_leiden[1]
     cpp = CASPostProcesser(max_rounds=-1)
