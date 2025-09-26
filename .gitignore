@@ -12,3 +12,6 @@
 
 # metadata from pip-installing repo
 cas.egg-info
+
+# Pytest
+.pytest_cache

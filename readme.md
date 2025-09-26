@@ -17,5 +17,7 @@ git clone https://github.com/ryandewolfe33/CAS.git
 cd CAS
 pip install .
 ```
-
 Check out the [example notebook](https://github.com/ryandewolfe33/CAS/blob/main/example.ipynb) for a quick overview of the syntax.
+
+This package is still at an early stage of development.
+Breaking changes may happen without warning and between 0.0.x versions.
