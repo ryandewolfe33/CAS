@@ -3,7 +3,7 @@
 Methods for post processing community detection to allow for outliers and overlapping communities.
 For details of the scores and their performance, see our conference paper:
 
-> Barrett, J., DeWolfe, R., Kamiński, B., Prałat, P., Smith, A., Théberge, F. (2025). Improving Community Detection via Community Association Strength Scores. In: Bloznelis, M., et al. Modelling and Mining Networks. WAW 2025. Lecture Notes in Computer Science, vol 15699. Springer, Cham. [https://doi-org/10.1007/978-3-031-92898-7_6](https://doi-org/10.1007/978-3-031-92898-7_6)
+> Barrett, J., DeWolfe, R., Kamiński, B., Prałat, P., Smith, A., Théberge, F. (2025). Improving Community Detection via Community Association Strength Scores. In: Bloznelis, M., et al. Modelling and Mining Networks. WAW 2025. Lecture Notes in Computer Science, vol 15699. Springer, Cham. [https://doi.org/10.1007/978-3-031-92898-7_6](https://doi.org/10.1007/978-3-031-92898-7_6)
 
 Or the pre-print at [https://doi.org/10.48550/arXiv.2501.17817](https://doi.org/10.48550/arXiv.2501.17817)
 
