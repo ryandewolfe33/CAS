@@ -15,3 +15,8 @@ cas.egg-info
 
 # Pytest
 .pytest_cache
+
+build/*
+dist/*
+docs/_build
+docs/build
