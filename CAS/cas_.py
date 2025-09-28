@@ -538,11 +538,44 @@ def _sparse_labels_to_numpy(labels_indptr, labels_indices, n_nodes):
 
 
 class CASPostProcesser:
+    """
+    Post-processing community detection results to allow for outliers and/or overlapping communities.
+
+    Parameters:
+    -----------
+
+    score: string (optional, default "nief")
+        The CAS score to use. Must be one of "ief", "nief" or "p".
+
+    threshold: float (optional, default 0.5)
+        The CAS threshold for adding/removing nodes from a community.
+
+    max_rounds: int (optional, default 100)
+        The maximum number of rounds to re-compute CAS scores. Results usually
+        converge in less than 20 rounds.
+
+    only_remove: bool (optional, defualt True)
+        Flag to only allow for removing nodes from their community. If True and
+        starting from a partition, there will be no overlapping communities. If
+        False, both add and remove nodes to communities, which may create overlap.
+
+    sparse_output: bool (optional, default False)
+        Force labels_ to be stored/returned in a labels x nodes sparse matrix for
+        compatibility with overlapping communities. If True, only_remove = True, and
+        a 1d numpy array is passed, labels_ are stored and returned as a 1d numpy array.
+
+    relabel_clusters: bool (optional default True)
+        Relabel clusters to contiguous range 0-n by removing empty clusters.
+
+    verbose: bool (optional defualt False)
+        Option to print details
+
+    """
     def __init__(
         self,
         score="nief",
         threshold=0.5,
-        max_rounds=1000,
+        max_rounds=100,
         only_remove=True,
         sparse_output=False,
         relabel_clusters=True,
@@ -587,6 +620,16 @@ class CASPostProcesser:
             raise ValueError("sparse_output must be a bool")
 
     def fit(self, labels, adjacency):
+        """
+        Post-process a clustering.
+
+        Parameters:
+        -----------
+        labels: 1d numpy array or (labels x nodes) scipy sparse matrix
+        
+        adjacency: scipy sparse adjacency matrix. Stored values are
+            interpreted as edge weights.
+        """
         self._validate_parameters()
         return_as_numpy = False
         if isinstance(labels, np.ndarray):
