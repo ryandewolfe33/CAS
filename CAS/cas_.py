@@ -231,6 +231,7 @@ def _get_new_labels(
 def _post_process(
     labels_indptr,
     labels_indices,
+    n_labels,
     adjacency_indptr,
     adjacency_indices,
     adjacency_data,
@@ -258,7 +259,6 @@ def _post_process(
     verbose: Flag to print loop information for debugging
     """
     graph_volume = np.sum(adjacency_data)
-    n_labels = len(labels_indptr) - 1
     node_labels = _make_node_label_sets(
         labels_indptr, labels_indices, len(adjacency_indptr) - 1
     )
@@ -427,6 +427,7 @@ class CASPostProcesser:
         labels_indptr, labels_indices, labels_data = _post_process(
             labels.indptr,
             labels.indices,
+            n_labels,
             adjacency.indptr,
             adjacency.indices,
             adjacency.data,
