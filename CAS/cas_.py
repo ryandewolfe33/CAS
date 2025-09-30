@@ -506,18 +506,17 @@ def _transpose_sparse(indptr, indices, indices_dim):
 
 @njit
 def _make_node_label_sets(labels_indptr, labels_indices, n_nodes):
+    """ Take (label x node) csc matrix and return a list membership sets.
+    """
     node_labels = List([{int32(-1)} for _ in range(n_nodes)])
-    for labels in node_labels:
-        labels.remove(int32(-1))
-    for label in range(len(labels_indptr)-1):
-        for node in labels_indices[labels_indptr[label]:labels_indptr[label+1]]:
-            node_labels[node].add(int32(label))
+    for node in range(len(labels_indptr)-1):
+        node_labels[node] = set(labels_indices[labels_indptr[node]:labels_indptr[node+1]])
     return node_labels
 
 
 @njit 
 def _make_sparse_from_label_sets(node_labels, n_labels):
-    """ Take a list of sets and return csr matrix indptr and indices
+    """ Take a list membership sets and return (labels x nodes) csc matrix.
     """
     n_indices = sum([len(labels) for labels in node_labels])
     indptr = np.empty(len(node_labels)+1, dtype="int32")
@@ -529,8 +528,7 @@ def _make_sparse_from_label_sets(node_labels, n_labels):
         indices[next_empty_index:next_empty_index+len(this_indices)] = this_indices
         next_empty_index += len(this_indices)
     indptr[-1] = next_empty_index
-    data = np.ones(n_indices, dtype="bool")
-    return indptr, indices, data
+    return indptr, indices
 
 
 @njit
@@ -598,8 +596,20 @@ def _post_process(
     """Remove nodes from clusters if their cas score is below the threshold and add nodes
     to clusters if their cas is above the threshold. Nodes are added or removed in
     the order of greatest cas distance to the threshold.
-    """
 
+    Parameters:
+    -----------
+    labels_indptr: indptr of (labels x nodes) csc matrix
+    labels_indices: indices of (labels x nodes) csc matrix
+    adjacency_indptr: indptr of csr adjacency matrix
+    adjacency_indices: indices of csr adjacency matrix
+    adjacency_data: data of csr adjacency matrix
+    threshold (float)
+    max_rounds: maximum rounds to recompute CAS scores
+    cas: pointer to numba.njit cas function
+    only_remove: Flag to only_remove nodes from their labels vs. add to new labels.
+    verbose: Flag to print loop information for debugging
+    """
     graph_volume = np.sum(adjacency_data)
     n_labels = len(labels_indptr) - 1
     node_labels = _make_node_label_sets(labels_indptr, labels_indices, len(adjacency_indptr)-1)
@@ -636,7 +646,8 @@ def _post_process(
         node_labels = new_labels
         nodes_that_moved_last_round = nodes_that_moved_this_round
 
-    labels_indptr, labels_indices, labels_data = _make_sparse_from_label_sets(node_labels, n_labels)
+    labels_indptr, labels_indices = _make_sparse_from_label_sets(node_labels, n_labels)
+    labels_data = np.ones(len(labels_indices), dtype="bool")
     return labels_indptr, labels_indices, labels_data
 
 
@@ -844,15 +855,12 @@ class CASPostProcesser:
         if isinstance(labels, np.ndarray):
             if labels.ndim != 1:
                 raise ValueError(f"Expected 1d numpy array. Got {labels.ndim} dims.")
-            labels_indptr, labels_indices, labels_data = _labels_array_to_matrix(labels)
+            labels = labels_array_to_matrix(labels, adjacency.shape[0]).tocsc()
             return_as_numpy = (
                 self.only_remove and not self.sparse_output
             )  # If passed a numpy array and only removing, return a numpy array
         elif sp.issparse(labels):
-            labels = labels.tocsr()
-            labels_indptr = labels.indptr
-            labels_indices = labels.indices
-            labels_data = labels.data
+            labels = labels.tocsc()
         else:
             raise ValueError(
                 f"Expected labels to be a scipy sparse array of numpy array. Got {type(labels)}"
@@ -864,10 +872,12 @@ class CASPostProcesser:
             raise ValueError(
                 f"Adjacnecy must be a sparse matrix. Got {type(adjacency)}."
             )
-        n_labels = len(labels_indptr)-1
+        
+        assert labels.format == "csc"  # labels is a (labels x nodes) csc matrix
+        n_labels = labels.shape[0]
         labels_indptr, labels_indices, labels_data = _post_process(
-            labels_indptr,
-            labels_indices,
+            labels.indptr,
+            labels.indices,
             adjacency.indptr,
             adjacency.indices,
             adjacency.data,
@@ -878,15 +888,15 @@ class CASPostProcesser:
             self.verbose,
         )  # (node x label) matrix
 
-        labels = sp.csr_matrix(
+        labels = sp.csc_matrix(
             (labels_data, labels_indices, labels_indptr),
-            shape=(adjacency.shape[0], n_labels),
+            shape=(n_labels, adjacency.shape[0]),
             dtype="bool",
         )
         labels.data[:] = (
             True  # Sometime some entries are flipped to false, don't know why.
         )
-        labels = labels.transpose().tocsr()
+        labels = labels.tocsr()
 
         if self.relabel_clusters:
             non_empty_cluster = labels.getnnz(1) > 0
@@ -894,9 +904,13 @@ class CASPostProcesser:
             labels = labels[non_empty_cluster]
 
         if return_as_numpy:
-            labels = _sparse_labels_to_numpy(
-                labels.indptr, labels.indices, adjacency.shape[0]
-            )
+            labels = labels.tocsc()
+            if not all(labels.getnnz(axis=0) <= 1): # Check max one cluster per node
+                raise AssertionError("Cannot return as numpy array, some nodes have more than one label.")
+                self.labels_ = labels.tocsr()  # Save matrix anyway
+            numpy_labels = np.full(adjacency.shape[0], -1, dtype="int32")
+            numpy_labels[labels.getnnz(axis=0) == 1] = labels.indices
+            labels = numpy_labels
 
         self.labels_ = labels
         return self
