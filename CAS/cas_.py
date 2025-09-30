@@ -6,37 +6,9 @@ from numba.typed import List
 from numba.types import int32, int64
 
 
-@njit
-def _labels_array_to_matrix(labels):
-    n_labels = np.max(labels) + 1
-    n_nonoutliers = np.sum(labels >= 0)
-    indptr = np.empty(n_labels + 1, dtype="int32")
-    indices = np.empty(n_nonoutliers, dtype="int32")
-    data = np.ones(n_nonoutliers, dtype="bool")
-    labels_argsort = np.argsort(labels)
-    next_index = 0
-    for label in range(n_labels):
-        indptr[label] = next_index
-        label_nodes = np.arange(len(labels))[labels == label]
-        n_label_nodes = len(label_nodes)
-        indices[next_index : next_index + n_label_nodes] = label_nodes
-        next_index += n_label_nodes
-    indptr[-1] = next_index  # update last indptr entry
-    return indptr, indices, data
-
-
-def labels_array_to_matrix(labels, n_cols):
-    """Convert a numpy labels array to a (labels x nodes) csr matrix
-    Labels are assumed to be contiguous 0-max(labels), and -1 denotes nodes with no labels
-    """
-    labels_indptr, labels_indices, labels_data = _labels_array_to_matrix(labels)
-    labels = sp.csr_matrix(
-        (labels_data, labels_indices, labels_indptr),
-        shape=(len(labels_indptr) - 1, n_cols),
-        dtype="bool",
-    )
-    labels.data[:] = True  # Sometime some entries are flipped to false, don't know why.
-    return labels
+#################
+# CAS Functions #
+#################
 
 
 @njit
@@ -135,6 +107,44 @@ def _p(
     return p
 
 
+########################
+# Formatting Functions #
+########################
+
+
+@njit
+def _labels_array_to_matrix(labels):
+    n_labels = np.max(labels) + 1
+    n_nonoutliers = np.sum(labels >= 0)
+    indptr = np.empty(n_labels + 1, dtype="int32")
+    indices = np.empty(n_nonoutliers, dtype="int32")
+    data = np.ones(n_nonoutliers, dtype="bool")
+    labels_argsort = np.argsort(labels)
+    next_index = 0
+    for label in range(n_labels):
+        indptr[label] = next_index
+        label_nodes = np.arange(len(labels))[labels == label]
+        n_label_nodes = len(label_nodes)
+        indices[next_index : next_index + n_label_nodes] = label_nodes
+        next_index += n_label_nodes
+    indptr[-1] = next_index  # update last indptr entry
+    return indptr, indices, data
+
+
+def labels_array_to_matrix(labels, n_cols):
+    """Convert a numpy labels array to a (labels x nodes) csr matrix
+    Labels are assumed to be contiguous 0-max(labels), and -1 denotes nodes with no labels
+    """
+    labels_indptr, labels_indices, labels_data = _labels_array_to_matrix(labels)
+    labels = sp.csr_matrix(
+        (labels_data, labels_indices, labels_indptr),
+        shape=(len(labels_indptr) - 1, n_cols),
+        dtype="bool",
+    )
+    labels.data[:] = True  # Sometime some entries are flipped to false, don't know why.
+    return labels
+
+
 @njit
 def _make_node_label_sets(labels_indptr, labels_indices, n_nodes):
     """Take (label x node) csc matrix and return a list membership sets."""
@@ -160,6 +170,11 @@ def _make_sparse_from_label_sets(node_labels, n_labels):
         next_empty_index += len(this_indices)
     indptr[-1] = next_empty_index
     return indptr, indices
+
+
+#########################
+# Post Processing Logic #
+#########################
 
 
 @njit
