@@ -339,6 +339,7 @@ class CASPostProcesser:
         Option to print details
 
     """
+
     def __init__(
         self,
         score="nief",
@@ -394,7 +395,7 @@ class CASPostProcesser:
         Parameters:
         -----------
         labels: 1d numpy array or (labels x nodes) scipy sparse matrix
-        
+
         adjacency: scipy sparse adjacency matrix. Stored values are
             interpreted as edge weights.
         """
