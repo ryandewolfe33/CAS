@@ -1,9 +1,9 @@
 import numpy as np
 import scipy.sparse as sp
-from numba import njit, prange
+from numba import njit, prange, typeof
 from numba_stats import binom
 from numba.typed import List
-
+from numba.types import int32, int64
 
 @njit
 def _labels_array_to_matrix(labels):
@@ -24,36 +24,119 @@ def _labels_array_to_matrix(labels):
     return indptr, indices, data
 
 
+def labels_array_to_matrix(labels, n_cols):
+    labels_indptr, labels_indices, labels_data = _labels_array_to_matrix(labels)
+    labels = sp.csr_matrix(
+        (labels_data, labels_indices, labels_indptr),
+        shape=(len(labels_indptr) - 1, n_cols),
+        dtype="bool",
+    )
+    labels.data[:] = (
+        True  # Sometime some entries are flipped to false, don't know why.
+    )
+    return labels
+
+
 @njit
 def _get_degree(node, adjacency_indptr, adjacency_indices, adjacency_data):
     return np.sum(adjacency_data[adjacency_indptr[node] : adjacency_indptr[node + 1]])
 
 
+# @njit
+# def _get_community_degree(
+#     node,
+#     label,
+#     labels_indptr,
+#     labels_indices,
+#     adjacency_indptr,
+#     adjacency_indices,
+#     adjacency_data,
+# ):
+#     neighbors = adjacency_indices[adjacency_indptr[node] : adjacency_indptr[node + 1]]
+#     edge_weights = adjacency_data[adjacency_indptr[node] : adjacency_indptr[node + 1]]
+#     community_degree = 0
+#     for neighbor, edge_weight in zip(neighbors, edge_weights):
+#         if neighbor in labels_indices[labels_indptr[label] : labels_indptr[label + 1]]:
+#             community_degree += edge_weight
+#     return community_degree
+
+
+# @njit
+# def _get_volume(nodes, adjacency_indptr, adjacency_indices, adjacency_data):
+#     volume = 0
+#     for node in nodes:
+#         volume += _get_degree(node, adjacency_indptr, adjacency_indices, adjacency_data)
+#     return volume
+
+
+# @njit
+# def _ief(
+#     node,
+#     label,
+#     label_volume,
+#     labels_indptr,
+#     labels_indices,
+#     adjacency_indptr,
+#     adjacency_indices,
+#     adjacency_data,
+# ):
+#     degree = _get_degree(node, adjacency_indptr, adjacency_indices, adjacency_data)
+#     if degree == 0:
+#         return 0
+#     in_community_degree = _get_community_degree(
+#         node,
+#         label,
+#         labels_indptr,
+#         labels_indices,
+#         adjacency_indptr,
+#         adjacency_indices,
+#         adjacency_data,
+#     )
+#     return in_community_degree / degree
+
+
+# @njit
+# def _nief(
+#     node,
+#     label,
+#     label_volume,
+#     labels_indptr,
+#     labels_indices,
+#     adjacency_indptr,
+#     adjacency_indices,
+#     adjacency_data,
+# ):
+#     degree = _get_degree(node, adjacency_indptr, adjacency_indices, adjacency_data)
+#     if degree == 0:
+#         return 0
+#     in_community_degree = _get_community_degree(
+#         node,
+#         label,
+#         labels_indptr,
+#         labels_indices,
+#         adjacency_indptr,
+#         adjacency_indices,
+#         adjacency_data,
+#     )
+#     return max(in_community_degree / degree - label_volume, 0)
 @njit
-def _get_community_degree(
+def _get_degree_and_label_degree(
     node,
     label,
-    labels_indptr,
-    labels_indices,
+    node_labels,
     adjacency_indptr,
     adjacency_indices,
     adjacency_data,
 ):
-    neighbors = adjacency_indices[adjacency_indptr[node] : adjacency_indptr[node + 1]]
-    edge_weights = adjacency_data[adjacency_indptr[node] : adjacency_indptr[node + 1]]
-    community_degree = 0
-    for neighbor, edge_weight in zip(neighbors, edge_weights):
-        if neighbor in labels_indices[labels_indptr[label] : labels_indptr[label + 1]]:
-            community_degree += edge_weight
-    return community_degree
-
-
-@njit
-def _get_volume(nodes, adjacency_indptr, adjacency_indices, adjacency_data):
-    volume = 0
-    for node in nodes:
-        volume += _get_degree(node, adjacency_indptr, adjacency_indices, adjacency_data)
-    return volume
+    degree = 0
+    label_degree = 0
+    for neighbor_index in range(adjacency_indptr[node], adjacency_indptr[node+1]):
+        neighbor = adjacency_indices[neighbor_index]
+        edge_weight = adjacency_data[neighbor_index]
+        degree += edge_weight
+        if label in node_labels[neighbor]:
+            label_degree += edge_weight
+    return degree, label_degree
 
 
 @njit
@@ -61,25 +144,22 @@ def _ief(
     node,
     label,
     label_volume,
-    labels_indptr,
-    labels_indices,
+    node_labels,
     adjacency_indptr,
     adjacency_indices,
     adjacency_data,
 ):
-    degree = _get_degree(node, adjacency_indptr, adjacency_indices, adjacency_data)
-    if degree == 0:
-        return 0
-    in_community_degree = _get_community_degree(
+    degree, in_label_degree = _get_degree_and_label_degree(
         node,
         label,
-        labels_indptr,
-        labels_indices,
+        node_labels,
         adjacency_indptr,
         adjacency_indices,
         adjacency_data,
     )
-    return in_community_degree / degree
+    if degree == 0:
+        return 0
+    return in_label_degree / degree
 
 
 @njit
@@ -87,25 +167,21 @@ def _nief(
     node,
     label,
     label_volume,
-    labels_indptr,
-    labels_indices,
+    node_labels,
     adjacency_indptr,
     adjacency_indices,
     adjacency_data,
 ):
-    degree = _get_degree(node, adjacency_indptr, adjacency_indices, adjacency_data)
-    if degree == 0:
-        return 0
-    in_community_degree = _get_community_degree(
+    ief = _ief(
         node,
         label,
-        labels_indptr,
-        labels_indices,
+        label_volume,
+        node_labels,
         adjacency_indptr,
         adjacency_indices,
         adjacency_data,
     )
-    return max(in_community_degree / degree - label_volume, 0)
+    return max(ief - label_volume, 0)
 
 
 @njit
@@ -113,107 +189,103 @@ def _p(
     node,
     label,
     label_volume,
-    labels_indptr,
-    labels_indices,
+    node_labels,
     adjacency_indptr,
     adjacency_indices,
     adjacency_data,
 ):
     degree = np.empty(1, dtype="float64")
-    degree[0] = _get_degree(node, adjacency_indptr, adjacency_indices, adjacency_data)
-    if degree[0] == 0:
-        return 0
-    in_community_degree = np.empty(1, dtype="float64")
-    in_community_degree[0] = _get_community_degree(
+    label_degree = np.empty(1, dtype="float64")
+    degree[0], label_degree[0] = _get_degree_and_label_degree(
         node,
         label,
-        labels_indptr,
-        labels_indices,
+        node_labels,
         adjacency_indptr,
         adjacency_indices,
         adjacency_data,
     )
-
-    p = binom._cdf(in_community_degree, degree, label_volume)[0]
+    if degree[0] == 0:
+        return 0
+    p = binom._cdf(label_degree, degree, label_volume)[0]
     return p
 
 
-@njit
-def _eliminate_zeros(indptr, indices, data):
-    """Eliminate zeros from csr sparse matrix"""
-    n_entries = np.sum(data)
-    new_indptr = np.empty_like(indptr)
-    new_indices = np.empty(n_entries, dtype=indices.dtype)
-    new_data = np.ones(n_entries, dtype=data.dtype)
-    next_index = 0
-    for row in range(len(indptr) - 1):
-        new_indptr[row] = next_index
-        for data_id in range(indptr[row], indptr[row + 1]):
-            if data[data_id] > 0:
-                new_indices[next_index] = indices[data_id]
-                next_index += 1
-    new_indptr[-1] = next_index
-    return new_indptr, new_indices, new_data
+# @njit
+# def _eliminate_zeros(indptr, indices, data):
+#     """Eliminate zeros from csr sparse matrix"""
+#     n_entries = np.sum(data)
+#     new_indptr = np.empty_like(indptr)
+#     new_indices = np.empty(n_entries, dtype=indices.dtype)
+#     new_data = np.ones(n_entries, dtype=data.dtype)
+#     next_index = 0
+#     for row in range(len(indptr) - 1):
+#         new_indptr[row] = next_index
+#         for data_id in range(indptr[row], indptr[row + 1]):
+#             if data[data_id] > 0:
+#                 new_indices[next_index] = indices[data_id]
+#                 next_index += 1
+#     new_indptr[-1] = next_index
+#     return new_indptr, new_indices, new_data
 
 
-@njit
-def _post_process_remove(
-    labels_indptr,
-    labels_indices,
-    labels_data,
-    adjacency_indptr,
-    adjacency_indices,
-    adjacency_data,
-    threshold,
-    max_rounds,
-    cas,
-    verbose=False,
-):
-    """Remove nodes from clusters if their cas score is below the provided threshold."""
-    # TODO randomly select for ties
-    graph_volume = np.sum(adjacency_data)
-    for round_number in range(max_rounds):
-        # Compute the cas score for each node to each of its labels
-        cas_scores = np.empty_like(labels_data, dtype="float32")
-        for label in range(len(labels_indptr) - 1):
-            nodes = labels_indices[labels_indptr[label] : labels_indptr[label + 1]]
-            label_volume = (
-                _get_volume(nodes, adjacency_indptr, adjacency_indices, adjacency_data)
-                / graph_volume
-            )
-            for data_offset, node in enumerate(nodes):
-                cas_scores[labels_indptr[label] + data_offset] = cas(
-                    node,
-                    label,
-                    label_volume,
-                    labels_indptr,
-                    labels_indices,
-                    adjacency_indptr,
-                    adjacency_indices,
-                    adjacency_data,
-                )
+# @njit
+# def _post_process_remove(
+#     labels_indptr,
+#     labels_indices,
+#     labels_data,
+#     adjacency_indptr,
+#     adjacency_indices,
+#     adjacency_data,
+#     threshold,
+#     max_rounds,
+#     cas,
+#     verbose=False,
+# ):
+#     """Remove nodes from clusters if their cas score is below the provided threshold."""
+#     # TODO randomly select for ties
+#     graph_volume = np.sum(adjacency_data)
+#     for round_number in range(max_rounds):
+#         # Compute the cas score for each node to each of its labels
+#         cas_scores = np.empty_like(labels_data, dtype="float32")
+#         for label in range(len(labels_indptr) - 1):
+#             nodes = labels_indices[labels_indptr[label] : labels_indptr[label + 1]]
+#             label_volume = (
+#                 _get_volume(nodes, adjacency_indptr, adjacency_indices, adjacency_data)
+#                 / graph_volume
+#             )
+#             for data_offset, node in enumerate(nodes):
+#                 cas_scores[labels_indptr[label] + data_offset] = cas(
+#                     node,
+#                     label,
+#                     label_volume,
+#                     labels_indptr,
+#                     labels_indices,
+#                     adjacency_indptr,
+#                     adjacency_indices,
+#                     adjacency_data,
+#                 )
 
-        # If no nodes need to be moved, break loop
-        none_removed = True
-        # Remove nodes (set label to 0)
-        cas_order = np.argsort(cas_scores)
-        for i in range(len(cas_scores)):
-            remove_index = cas_order[i]
-            if cas_scores[remove_index] < threshold:
-                labels_data[remove_index] = 0
-                none_removed = False
-            else:
-                break
-        if verbose:
-            print(f"Removed {i} in round {round_number}.")
-        if none_removed:
-            break
-        # Update labels (eliminate_zeros)
-        labels_indptr, labels_indices, labels_data = _eliminate_zeros(
-            labels_indptr, labels_indices, labels_data
-        )
+#         # If no nodes need to be moved, break loop
+#         none_removed = True
+#         # Remove nodes (set label to 0)
+#         cas_order = np.argsort(cas_scores)
+#         for i in range(len(cas_scores)):
+#             remove_index = cas_order[i]
+#             if cas_scores[remove_index] < threshold:
+#                 labels_data[remove_index] = 0
+#                 none_removed = False
+#             else:
+#                 break
+#         if verbose:
+#             print(f"Removed {i} in round {round_number}.")
+#         if none_removed:
+#             break
+#         # Update labels (eliminate_zeros)
+#         labels_indptr, labels_indices, labels_data = _eliminate_zeros(
+#             labels_indptr, labels_indices, labels_data
+#         )
 
-    return labels_indptr, labels_indices, labels_data
+#     return labels_indptr, labels_indices, labels_data
 
 
 # @njit
@@ -367,156 +439,293 @@ def _transpose_sparse(indptr, indices, indices_dim):
 #     return new_indptr, new_indices
 
 
+# @njit
+# def _get_new_labels(
+#     labels_csr_indptr,
+#     labels_csr_indices,
+#     labels_csc_indptr,
+#     labels_csc_indices,
+#     adjacency_indptr,
+#     adjacency_indices,
+#     adjacency_data,
+#     graph_volume,
+#     threshold,
+#     cas,
+# ):
+#     """Make an lil matrix of (node x label)"""
+#     lil_node_labels = List(
+#         [np.empty(0, dtype="int32") for _ in range(len(adjacency_indptr) - 1)]
+#     )
+#     label_volumes = np.empty(
+#         len(labels_csr_indptr) - 1, dtype="float32"
+#     )  # cache label volumes
+#     for label in range(len(labels_csr_indptr) - 1):
+#         label_nodes = labels_csr_indices[
+#             labels_csr_indptr[label] : labels_csr_indptr[label + 1]
+#         ]
+#         label_volumes[label] = (
+#             _get_volume(
+#                 label_nodes, adjacency_indptr, adjacency_indices, adjacency_data
+#             )
+#             / graph_volume
+#         )
+
+#     # For each node, compute the assigned labels (everything above threshold)
+#     for node in range(len(adjacency_indptr) - 1):
+#         plausible_labels = set(
+#             labels_csc_indices[labels_csc_indptr[node] : labels_csc_indptr[node + 1]]
+#         )
+#         previous_labels = plausible_labels.copy()
+#         neighbors = adjacency_indices[
+#             adjacency_indptr[node] : adjacency_indptr[node + 1]
+#         ]
+#         for neighbor in neighbors:
+#             plausible_labels.update(
+#                 labels_csc_indices[
+#                     labels_csc_indptr[neighbor] : labels_csc_indptr[neighbor + 1]
+#                 ]
+#             )
+#         plausible_labels = np.array(list(plausible_labels))
+#         cas_scores = np.empty_like(plausible_labels, dtype="float64")
+#         for i in range(len(plausible_labels)):
+#             cas_scores[i] = cas(
+#                 node,
+#                 plausible_labels[i],
+#                 label_volumes[plausible_labels[i]],
+#                 labels_csr_indptr,
+#                 labels_csr_indices,
+#                 adjacency_indptr,
+#                 adjacency_indices,
+#                 adjacency_data,
+#             )
+#         new_labels = plausible_labels[cas_scores >= threshold]
+#         new_labels.sort()
+#         lil_node_labels[node] = new_labels
+#     return lil_node_labels
+
+
+@njit
+def _make_node_label_sets(labels_indptr, labels_indices, n_nodes):
+    node_labels = List([{int32(-1)} for _ in range(n_nodes)])
+    for labels in node_labels:
+        labels.remove(int32(-1))
+    for label in range(len(labels_indptr)-1):
+        for node in labels_indices[labels_indptr[label]:labels_indptr[label+1]]:
+            node_labels[node].add(int32(label))
+    return node_labels
+
+
+@njit 
+def _make_sparse_from_label_sets(node_labels, n_labels):
+    """ Take a list of sets and return csr matrix indptr and indices
+    """
+    n_indices = sum([len(labels) for labels in node_labels])
+    indptr = np.empty(len(node_labels)+1, dtype="int32")
+    indices = np.empty(n_indices, dtype="int32")
+    next_empty_index = 0
+    for node in range(len(node_labels)):
+        indptr[node] = next_empty_index
+        this_indices = np.sort(list(node_labels[node]))
+        indices[next_empty_index:next_empty_index+len(this_indices)] = this_indices
+        next_empty_index += len(this_indices)
+    indptr[-1] = next_empty_index
+    data = np.ones(n_indices, dtype="bool")
+    return indptr, indices, data
+
+
 @njit
 def _get_new_labels(
-    labels_csr_indptr,
-    labels_csr_indices,
-    labels_csc_indptr,
-    labels_csc_indices,
+    node_labels,
+    n_labels,
     adjacency_indptr,
     adjacency_indices,
     adjacency_data,
     graph_volume,
     threshold,
     cas,
+    only_remove=False,
 ):
-    """Make an lil matrix of (node x label)"""
-    lil_node_labels = List(
-        [np.empty(0, dtype="int32") for _ in range(len(adjacency_indptr) - 1)]
-    )
-    label_volumes = np.empty(
-        len(labels_csr_indptr) - 1, dtype="float32"
-    )  # cache label volumes
-    for label in range(len(labels_csr_indptr) - 1):
-        label_nodes = labels_csr_indices[
-            labels_csr_indptr[label] : labels_csr_indptr[label + 1]
-        ]
-        label_volumes[label] = (
-            _get_volume(
-                label_nodes, adjacency_indptr, adjacency_indices, adjacency_data
-            )
-            / graph_volume
-        )
+    new_labels = List([{int32(-1)} for _ in range(len(node_labels))])
 
-    # For each node, compute the assigned labels (everything above threshold)
-    for node in range(len(adjacency_indptr) - 1):
-        plausible_labels = set(
-            labels_csc_indices[labels_csc_indptr[node] : labels_csc_indptr[node + 1]]
-        )
-        previous_labels = plausible_labels.copy()
-        neighbors = adjacency_indices[
-            adjacency_indptr[node] : adjacency_indptr[node + 1]
-        ]
-        for neighbor in neighbors:
-            plausible_labels.update(
-                labels_csc_indices[
-                    labels_csc_indptr[neighbor] : labels_csc_indptr[neighbor + 1]
-                ]
-            )
-        plausible_labels = np.array(list(plausible_labels))
-        cas_scores = np.empty_like(plausible_labels, dtype="float64")
-        for i in range(len(plausible_labels)):
-            cas_scores[i] = cas(
+    # Cache label volumes
+    label_volumes = np.zeros(
+        n_labels, dtype="float32"
+    )  
+    for node, labels in enumerate(node_labels):
+        degree = _get_degree(node, adjacency_indptr, adjacency_indices, adjacency_data)
+        for label in labels:
+            label_volumes[label] += degree
+    assert graph_volume > 0
+    label_volumes /= graph_volume
+
+    # Compute new memberships
+    for node in range(len(node_labels)):
+        new_labels[node].remove(int32(-1))  # Get rid of placeholder
+        plausible_labels = node_labels[node].copy()
+        if not only_remove: # Also look at neighbor's labels
+            neighbors = adjacency_indices[
+                adjacency_indptr[node] : adjacency_indptr[node + 1]
+            ]
+            for neighbor in neighbors:
+                plausible_labels.update(node_labels[neighbor])
+        for label in plausible_labels:
+            if cas(
                 node,
-                plausible_labels[i],
-                label_volumes[plausible_labels[i]],
-                labels_csr_indptr,
-                labels_csr_indices,
+                label,
+                label_volumes[label],
+                node_labels,
                 adjacency_indptr,
                 adjacency_indices,
                 adjacency_data,
-            )
-        new_labels = plausible_labels[cas_scores >= threshold]
-        new_labels.sort()
-        lil_node_labels[node] = new_labels
-    return lil_node_labels
-
-
-@njit
-def _lil_to_csc(new_labels):
-    """Take a list of lists (column x rows) and return csr and csc data"""
-    total_labels = 0
-    for i in range(len(new_labels)):
-        total_labels += len(new_labels[i])
-    csc_indptr = np.empty(len(new_labels) + 1, dtype="int32")
-    csc_indices = np.empty(total_labels, dtype="int32")
-    next_index = 0
-    for col in range(len(new_labels)):
-        csc_indptr[col] = next_index
-        rows = new_labels[col]
-        next_index = next_index + len(rows)
-        csc_indices[csc_indptr[col] : next_index] = rows
-    csc_indptr[-1] = next_index
-    return csc_indptr, csc_indices
+            ) >= threshold:
+                new_labels[node].add(label)
+    return new_labels
 
 
 @njit
 def _post_process(
-    labels_csr_indptr,
-    labels_csr_indices,
-    labels_csr_data,
+    labels_indptr,
+    labels_indices,
     adjacency_indptr,
     adjacency_indices,
     adjacency_data,
     threshold,
     max_rounds,
     cas,
+    only_remove=False,
     verbose=False,
 ):
     """Remove nodes from clusters if their cas score is below the threshold and add nodes
     to clusters if their cas is above the threshold. Nodes are added or removed in
     the order of greatest cas distance to the threshold.
     """
-    graph_volume = np.sum(adjacency_data)
-    n_labels = len(labels_csr_indptr) - 1
-    labels_csc_indptr, labels_csc_indices = _transpose_sparse(
-        labels_csr_indptr, labels_csr_indices, len(adjacency_indptr) - 1
-    )
-    # Break conditions. We can get stuck moving a few nodes back and forth so track two rounds.
-    two_rounds_ago_indptr = np.array([-1], dtype="int32")
-    two_rounds_ago_indices = np.array([-1], dtype="int32")
-    last_round_indptr = np.array([-1], dtype="int32")
-    last_round_indices = np.array([-1], dtype="int32")
 
+    graph_volume = np.sum(adjacency_data)
+    n_labels = len(labels_indptr) - 1
+    node_labels = _make_node_label_sets(labels_indptr, labels_indices, len(adjacency_indptr)-1)
+    nodes_that_moved_last_round = {int64(-1)}
     for round_number in range(max_rounds):
-        # Get nodes to move
         new_labels = _get_new_labels(
-            labels_csr_indptr,
-            labels_csr_indices,
-            labels_csc_indptr,
-            labels_csc_indices,
+            node_labels,
+            n_labels,
             adjacency_indptr,
             adjacency_indices,
             adjacency_data,
             graph_volume,
             threshold,
             cas,
+            only_remove=only_remove
         )
-
-        labels_csc_indptr, labels_csc_indices = _lil_to_csc(new_labels)
-        labels_csr_indptr, labels_csr_indices = _transpose_sparse(
-            labels_csc_indptr, labels_csc_indices, n_labels
-        )
-
+        # Get a set of the nodes that moved
+        nodes_that_moved_this_round = {int64(-1)}
+        nodes_that_moved_this_round.remove(int64(-1))
+        for node in range(len(node_labels)):
+            if new_labels[node] != node_labels[node]:
+                nodes_that_moved_this_round.add(node)
         if verbose:
-            print(f"\tRound {round_number}")
+            print(f"Round {round_number}: {len(nodes_that_moved_this_round)} nodes moved.")
 
-        # Break if nothing changed this round, or if we are back where we were two rounds ago
-        if (
-            np.array_equal(labels_csr_indptr, last_round_indptr)
-            and np.array_equal(labels_csr_indices, last_round_indices)
-        ) or (
-            np.array_equal(labels_csr_indptr, two_rounds_ago_indptr)
-            and np.array_equal(labels_csr_indices, two_rounds_ago_indices)
-        ):
+        if len(nodes_that_moved_this_round) == 0:
             break
-        two_rounds_ago_indptr = last_round_indptr
-        two_rounds_ago_indices = last_round_indices
-        last_round_indptr = labels_csr_indptr
-        last_round_indices = labels_csr_indices
+        
+        # We can get stuck in a loop moving a few nodes back and forth.
+        # Not the best solution but maybe fast-ish
+        if not only_remove and nodes_that_moved_this_round == nodes_that_moved_last_round:
+           break
+    
+        node_labels = new_labels
+        nodes_that_moved_last_round = nodes_that_moved_this_round
 
-    labels_csr_data = np.ones(len(labels_csr_indices), dtype="bool")
-    return labels_csr_indptr, labels_csr_indices, labels_csr_data
+    labels_indptr, labels_indices, labels_data = _make_sparse_from_label_sets(node_labels, n_labels)
+    return labels_indptr, labels_indices, labels_data
+
+
+
+# @njit
+# def _lil_to_csc(new_labels):
+#     """Take a list of lists (column x rows) and return csr and csc data"""
+#     total_labels = 0
+#     for i in range(len(new_labels)):
+#         total_labels += len(new_labels[i])
+#     csc_indptr = np.empty(len(new_labels) + 1, dtype="int32")
+#     csc_indices = np.empty(total_labels, dtype="int32")
+#     next_index = 0
+#     for col in range(len(new_labels)):
+#         csc_indptr[col] = next_index
+#         rows = new_labels[col]
+#         next_index = next_index + len(rows)
+#         csc_indices[csc_indptr[col] : next_index] = rows
+#     csc_indptr[-1] = next_index
+#     return csc_indptr, csc_indices
+
+
+# @njit
+# def _post_process(
+#     labels_csr_indptr,
+#     labels_csr_indices,
+#     labels_csr_data,
+#     adjacency_indptr,
+#     adjacency_indices,
+#     adjacency_data,
+#     threshold,
+#     max_rounds,
+#     cas,
+#     verbose=False,
+# ):
+#     """Remove nodes from clusters if their cas score is below the threshold and add nodes
+#     to clusters if their cas is above the threshold. Nodes are added or removed in
+#     the order of greatest cas distance to the threshold.
+#     """
+#     graph_volume = np.sum(adjacency_data)
+#     n_labels = len(labels_csr_indptr) - 1
+#     labels_csc_indptr, labels_csc_indices = _transpose_sparse(
+#         labels_csr_indptr, labels_csr_indices, len(adjacency_indptr) - 1
+#     )
+#     # Break conditions. We can get stuck moving a few nodes back and forth so track two rounds.
+#     two_rounds_ago_indptr = np.array([-1], dtype="int32")
+#     two_rounds_ago_indices = np.array([-1], dtype="int32")
+#     last_round_indptr = np.array([-1], dtype="int32")
+#     last_round_indices = np.array([-1], dtype="int32")
+
+#     for round_number in range(max_rounds):
+#         # Get nodes to move
+#         new_labels = _get_new_labels(
+#             labels_csr_indptr,
+#             labels_csr_indices,
+#             labels_csc_indptr,
+#             labels_csc_indices,
+#             adjacency_indptr,
+#             adjacency_indices,
+#             adjacency_data,
+#             graph_volume,
+#             threshold,
+#             cas,
+#         )
+
+#         labels_csc_indptr, labels_csc_indices = _lil_to_csc(new_labels)
+#         labels_csr_indptr, labels_csr_indices = _transpose_sparse(
+#             labels_csc_indptr, labels_csc_indices, n_labels
+#         )
+
+#         if verbose:
+#             print(f"\tRound {round_number}")
+
+#         # Break if nothing changed this round, or if we are back where we were two rounds ago
+#         if (
+#             np.array_equal(labels_csr_indptr, last_round_indptr)
+#             and np.array_equal(labels_csr_indices, last_round_indices)
+#         ) or (
+#             np.array_equal(labels_csr_indptr, two_rounds_ago_indptr)
+#             and np.array_equal(labels_csr_indices, two_rounds_ago_indices)
+#         ):
+#             break
+#         two_rounds_ago_indptr = last_round_indptr
+#         two_rounds_ago_indices = last_round_indices
+#         last_round_indptr = labels_csr_indptr
+#         last_round_indices = labels_csr_indices
+
+#     labels_csr_data = np.ones(len(labels_csr_indices), dtype="bool")
+#     return labels_csr_indptr, labels_csr_indices, labels_csr_data
 
 
 @njit
@@ -655,42 +864,29 @@ class CASPostProcesser:
             raise ValueError(
                 f"Adjacnecy must be a sparse matrix. Got {type(adjacency)}."
             )
-
-        if self.only_remove:
-            labels_indptr, labels_indices, labels_data = _post_process_remove(
-                labels_indptr,
-                labels_indices,
-                labels_data,
-                adjacency.indptr,
-                adjacency.indices,
-                adjacency.data,
-                self.threshold,
-                self.max_rounds,
-                self.cas,
-                self.verbose,
-            )
-        else:
-            labels_indptr, labels_indices, labels_data = _post_process(
-                labels_indptr,
-                labels_indices,
-                labels_data,
-                adjacency.indptr,
-                adjacency.indices,
-                adjacency.data,
-                self.threshold,
-                self.max_rounds,
-                self.cas,
-                self.verbose,
-            )
+        n_labels = len(labels_indptr)-1
+        labels_indptr, labels_indices, labels_data = _post_process(
+            labels_indptr,
+            labels_indices,
+            adjacency.indptr,
+            adjacency.indices,
+            adjacency.data,
+            self.threshold,
+            self.max_rounds,
+            self.cas,
+            self.only_remove,
+            self.verbose,
+        )  # (node x label) matrix
 
         labels = sp.csr_matrix(
             (labels_data, labels_indices, labels_indptr),
-            shape=(len(labels_indptr) - 1, adjacency.shape[0]),
+            shape=(adjacency.shape[0], n_labels),
             dtype="bool",
         )
         labels.data[:] = (
             True  # Sometime some entries are flipped to false, don't know why.
         )
+        labels = labels.transpose().tocsr()
 
         if self.relabel_clusters:
             non_empty_cluster = labels.getnnz(1) > 0
