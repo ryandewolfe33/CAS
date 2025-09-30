@@ -5,6 +5,7 @@ from numba_stats import binom
 from numba.typed import List
 from numba.types import int32, int64
 
+
 @njit
 def _labels_array_to_matrix(labels):
     n_labels = np.max(labels) + 1
@@ -25,7 +26,7 @@ def _labels_array_to_matrix(labels):
 
 
 def labels_array_to_matrix(labels, n_cols):
-    """ Convert a numpy labels array to a (labels x nodes) csr matrix
+    """Convert a numpy labels array to a (labels x nodes) csr matrix
     Labels are assumed to be contiguous 0-max(labels), and -1 denotes nodes with no labels
     """
     labels_indptr, labels_indices, labels_data = _labels_array_to_matrix(labels)
@@ -34,9 +35,7 @@ def labels_array_to_matrix(labels, n_cols):
         shape=(len(labels_indptr) - 1, n_cols),
         dtype="bool",
     )
-    labels.data[:] = (
-        True  # Sometime some entries are flipped to false, don't know why.
-    )
+    labels.data[:] = True  # Sometime some entries are flipped to false, don't know why.
     return labels
 
 
@@ -56,7 +55,7 @@ def _get_degree_and_label_degree(
 ):
     degree = 0
     label_degree = 0
-    for neighbor_index in range(adjacency_indptr[node], adjacency_indptr[node+1]):
+    for neighbor_index in range(adjacency_indptr[node], adjacency_indptr[node + 1]):
         neighbor = adjacency_indices[neighbor_index]
         edge_weight = adjacency_data[neighbor_index]
         degree += edge_weight
@@ -137,47 +136,27 @@ def _p(
 
 
 @njit
-def _transpose_sparse(indptr, indices, indices_dim):
-    new_indptr = np.zeros(indices_dim + 1, dtype=indptr.dtype)
-    new_indices = np.full(len(indices), -1, dtype=indices.dtype)
-    # populate new_indptr
-    for row in range(len(indptr) - 1):
-        for col in indices[indptr[row] : indptr[row + 1]]:
-            # increase new_indptr by one for every column after this one
-            for i in range(col + 1, len(new_indptr)):
-                new_indptr[i] += 1
-    # populate new_indices. indptr already come in sorted order
-    for row in range(len(indptr) - 1):
-        for col in indices[indptr[row] : indptr[row + 1]]:
-            for i in range(new_indptr[col], new_indptr[col + 1]):
-                if new_indices[i] == -1:
-                    new_indices[i] = row
-                    break
-    return new_indptr, new_indices
-
-
-@njit
 def _make_node_label_sets(labels_indptr, labels_indices, n_nodes):
-    """ Take (label x node) csc matrix and return a list membership sets.
-    """
+    """Take (label x node) csc matrix and return a list membership sets."""
     node_labels = List([{int32(-1)} for _ in range(n_nodes)])
-    for node in range(len(labels_indptr)-1):
-        node_labels[node] = set(labels_indices[labels_indptr[node]:labels_indptr[node+1]])
+    for node in range(len(labels_indptr) - 1):
+        node_labels[node] = set(
+            labels_indices[labels_indptr[node] : labels_indptr[node + 1]]
+        )
     return node_labels
 
 
-@njit 
+@njit
 def _make_sparse_from_label_sets(node_labels, n_labels):
-    """ Take a list membership sets and return (labels x nodes) csc matrix.
-    """
+    """Take a list membership sets and return (labels x nodes) csc matrix."""
     n_indices = sum([len(labels) for labels in node_labels])
-    indptr = np.empty(len(node_labels)+1, dtype="int32")
+    indptr = np.empty(len(node_labels) + 1, dtype="int32")
     indices = np.empty(n_indices, dtype="int32")
     next_empty_index = 0
     for node in range(len(node_labels)):
         indptr[node] = next_empty_index
         this_indices = np.sort(list(node_labels[node]))
-        indices[next_empty_index:next_empty_index+len(this_indices)] = this_indices
+        indices[next_empty_index : next_empty_index + len(this_indices)] = this_indices
         next_empty_index += len(this_indices)
     indptr[-1] = next_empty_index
     return indptr, indices
@@ -198,9 +177,7 @@ def _get_new_labels(
     new_labels = List([{int32(-1)} for _ in range(len(node_labels))])
 
     # Cache label volumes
-    label_volumes = np.zeros(
-        n_labels, dtype="float32"
-    )  
+    label_volumes = np.zeros(n_labels, dtype="float32")
     for node, labels in enumerate(node_labels):
         degree = _get_degree(node, adjacency_indptr, adjacency_indices, adjacency_data)
         for label in labels:
@@ -212,22 +189,25 @@ def _get_new_labels(
     for node in range(len(node_labels)):
         new_labels[node].remove(int32(-1))  # Get rid of placeholder
         plausible_labels = node_labels[node].copy()
-        if not only_remove: # Also look at neighbor's labels
+        if not only_remove:  # Also look at neighbor's labels
             neighbors = adjacency_indices[
                 adjacency_indptr[node] : adjacency_indptr[node + 1]
             ]
             for neighbor in neighbors:
                 plausible_labels.update(node_labels[neighbor])
         for label in plausible_labels:
-            if cas(
-                node,
-                label,
-                label_volumes[label],
-                node_labels,
-                adjacency_indptr,
-                adjacency_indices,
-                adjacency_data,
-            ) >= threshold:
+            if (
+                cas(
+                    node,
+                    label,
+                    label_volumes[label],
+                    node_labels,
+                    adjacency_indptr,
+                    adjacency_indices,
+                    adjacency_data,
+                )
+                >= threshold
+            ):
                 new_labels[node].add(label)
     return new_labels
 
@@ -264,7 +244,9 @@ def _post_process(
     """
     graph_volume = np.sum(adjacency_data)
     n_labels = len(labels_indptr) - 1
-    node_labels = _make_node_label_sets(labels_indptr, labels_indices, len(adjacency_indptr)-1)
+    node_labels = _make_node_label_sets(
+        labels_indptr, labels_indices, len(adjacency_indptr) - 1
+    )
     nodes_that_moved_last_round = {int64(-1)}
     for round_number in range(max_rounds):
         new_labels = _get_new_labels(
@@ -276,7 +258,7 @@ def _post_process(
             graph_volume,
             threshold,
             cas,
-            only_remove=only_remove
+            only_remove=only_remove,
         )
         # Get a set of the nodes that moved
         nodes_that_moved_this_round = {int64(-1)}
@@ -285,40 +267,27 @@ def _post_process(
             if new_labels[node] != node_labels[node]:
                 nodes_that_moved_this_round.add(node)
         if verbose:
-            print(f"Round {round_number}: {len(nodes_that_moved_this_round)} nodes moved.")
+            print(
+                f"Round {round_number}: {len(nodes_that_moved_this_round)} nodes moved."
+            )
 
         if len(nodes_that_moved_this_round) == 0:
             break
-        
+
         # We can get stuck in a loop moving a few nodes back and forth.
         # Not the best solution but maybe fast-ish
-        if not only_remove and nodes_that_moved_this_round == nodes_that_moved_last_round:
-           break
-    
+        if (
+            not only_remove
+            and nodes_that_moved_this_round == nodes_that_moved_last_round
+        ):
+            break
+
         node_labels = new_labels
         nodes_that_moved_last_round = nodes_that_moved_this_round
 
     labels_indptr, labels_indices = _make_sparse_from_label_sets(node_labels, n_labels)
     labels_data = np.ones(len(labels_indices), dtype="bool")
     return labels_indptr, labels_indices, labels_data
-
-
-@njit
-def _sparse_labels_to_numpy(labels_indptr, labels_indices, n_nodes):
-    labels_csc_indptr, labels_csc_indices = _transpose_sparse(
-        labels_indptr, labels_indices, n_nodes
-    )
-    new_labels = np.empty(len(labels_csc_indptr) - 1, dtype="int32")
-    for node in range(len(labels_csc_indptr) - 1):
-        if labels_csc_indptr[node] == labels_csc_indptr[node + 1]:
-            new_labels[node] = -1
-        elif labels_csc_indptr[node + 1] - labels_csc_indptr[node] == 1:
-            new_labels[node] = labels_csc_indices[labels_csc_indptr[node]]
-        else:
-            raise ValueError(
-                "Cannot convert a labels matrix with more than one label per node to a numpy array."
-            )
-    return new_labels
 
 
 class CASPostProcesser:
@@ -436,7 +405,7 @@ class CASPostProcesser:
             raise ValueError(
                 f"Adjacnecy must be a sparse matrix. Got {type(adjacency)}."
             )
-        
+
         assert labels.format == "csc"  # labels is a (labels x nodes) csc matrix
         n_labels = labels.shape[0]
         labels_indptr, labels_indices, labels_data = _post_process(
@@ -469,8 +438,10 @@ class CASPostProcesser:
 
         if return_as_numpy:
             labels = labels.tocsc()
-            if not all(labels.getnnz(axis=0) <= 1): # Check max one cluster per node
-                raise AssertionError("Cannot return as numpy array, some nodes have more than one label.")
+            if not all(labels.getnnz(axis=0) <= 1):  # Check max one cluster per node
+                raise AssertionError(
+                    "Cannot return as numpy array, some nodes have more than one label."
+                )
                 self.labels_ = labels.tocsr()  # Save matrix anyway
             numpy_labels = np.full(adjacency.shape[0], -1, dtype="int32")
             numpy_labels[labels.getnnz(axis=0) == 1] = labels.indices
