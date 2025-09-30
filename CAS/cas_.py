@@ -131,14 +131,14 @@ def _labels_array_to_matrix(labels):
     return indptr, indices, data
 
 
-def labels_array_to_matrix(labels, n_cols):
+def labels_array_to_matrix(labels):
     """Convert a numpy labels array to a (labels x nodes) csr matrix
     Labels are assumed to be contiguous 0-max(labels), and -1 denotes nodes with no labels
     """
     labels_indptr, labels_indices, labels_data = _labels_array_to_matrix(labels)
     labels = sp.csr_matrix(
         (labels_data, labels_indices, labels_indptr),
-        shape=(len(labels_indptr) - 1, n_cols),
+        shape=(len(labels_indptr) - 1, len(labels)),
         dtype="bool",
     )
     labels.data[:] = True  # Sometime some entries are flipped to false, don't know why.
@@ -403,7 +403,7 @@ class CASPostProcesser:
         if isinstance(labels, np.ndarray):
             if labels.ndim != 1:
                 raise ValueError(f"Expected 1d numpy array. Got {labels.ndim} dims.")
-            labels = labels_array_to_matrix(labels, adjacency.shape[0]).tocsc()
+            labels = labels_array_to_matrix(labels).tocsc()
             return_as_numpy = (
                 self.only_remove and not self.sparse_output
             )  # If passed a numpy array and only removing, return a numpy array
