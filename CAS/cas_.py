@@ -172,6 +172,22 @@ def _make_sparse_from_label_sets(node_labels, n_labels):
     return indptr, indices
 
 
+@njit
+def _remove_small_labels_work(
+    labels_indptr, labels_indices, labels_data, min_cluster_size
+):
+    """Set memberships to labels with less than min_cluster_size members to false inplace"""
+    for label in range(len(labels_indptr) - 1):
+        if labels_indptr[label + 1] - labels_indptr[label] < min_cluster_size:
+            labels_data[labels_indptr[label] : labels_indptr[label + 1]] = False
+
+
+def _remove_small_labels(labels, min_cluster_size):
+    _remove_small_labels_work(
+        labels.indptr, labels.indices, labels.data, min_cluster_size
+    )
+
+
 #########################
 # Post Processing Logic #
 #########################
@@ -346,6 +362,7 @@ class CASPostProcesser:
         threshold=0.5,
         max_rounds=100,
         only_remove=True,
+        min_cluster_size=5,
         sparse_output=False,
         relabel_clusters=True,
         verbose=False,
@@ -354,6 +371,7 @@ class CASPostProcesser:
         self.threshold = threshold
         self.max_rounds = max_rounds
         self.only_remove = only_remove
+        self.min_cluster_size = min_cluster_size
         self.sparse_output = sparse_output
         self.relabel_clusters = relabel_clusters
         self.verbose = verbose
@@ -384,6 +402,17 @@ class CASPostProcesser:
 
         if not isinstance(self.only_remove, bool):
             raise ValueError("only_remove must be a bool")
+
+        if not isinstance(self.min_cluster_size, int):
+            if self.min_cluster_size % 1 != 0:
+                raise ValueError("min_cluster_size must be a whole number")
+            try:
+                # convert other types of int to python int
+                self.min_cluster_size = int(self.min_cluster_size)
+            except ValueError:
+                raise ValueError("min_cluster_size must be an int")
+        if self.min_cluster_size < 0:
+            raise ValueError("min_cluster_size must be non-negative")
 
         if not isinstance(self.sparse_output, bool):
             raise ValueError("sparse_output must be a bool")
@@ -443,10 +472,13 @@ class CASPostProcesser:
             shape=(n_labels, adjacency.shape[0]),
             dtype="bool",
         )
-        labels.data[:] = (
-            True  # Sometime some entries are flipped to false, don't know why.
-        )
+        # Sometimes some entries are flipped to false, don't know why.
+        labels.data[:] = True
         labels = labels.tocsr()
+
+        if self.min_cluster_size > 0:
+            _remove_small_labels(labels, self.min_cluster_size)
+            labels.eliminate_zeros()
 
         if self.relabel_clusters:
             non_empty_cluster = labels.getnnz(1) > 0
