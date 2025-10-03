@@ -34,6 +34,16 @@ def test_only_remove(sbm_leiden):
         cpp.fit(predict, adjacency)
 
 
+def test_min_cluster_size(sbm_leiden):
+    adjacency, predict = sbm_leiden[0], sbm_leiden[1]
+    cpp = CASPostProcesser(min_cluster_size=-1)
+    with pytest.raises(ValueError):
+        cpp.fit(predict, adjacency)
+    cpp = CASPostProcesser(min_cluster_size=3.5)
+    with pytest.raises(ValueError):
+        cpp.fit(predict, adjacency)
+
+
 def test_sparse_output(sbm_leiden):
     adjacency, predict = sbm_leiden[0], sbm_leiden[1]
     cpp = CASPostProcesser(sparse_output=3.5)

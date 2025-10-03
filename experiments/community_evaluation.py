@@ -13,16 +13,18 @@ def _compute_conductance(
     labels_indptr,
     labels_indices,
 ):
-    conductance = np.empty(len(labels_indptr)-1)
-    for label in range(len(labels_indptr)-1):
-        if labels_indptr[label] == labels_indptr[label+1]:  #Empty cluster
+    conductance = np.empty(len(labels_indptr) - 1)
+    for label in range(len(labels_indptr) - 1):
+        if labels_indptr[label] == labels_indptr[label + 1]:  # Empty cluster
             conductance[label] = np.nan
             continue
-        nodes = labels_indices[labels_indptr[label]:labels_indptr[label+1]]
+        nodes = labels_indices[labels_indptr[label] : labels_indptr[label + 1]]
         boundary_degree = 0
         total_degree = 0
         for node in nodes:
-            neighbor_indices = np.arange(adjacency_indptr[node], adjacency_indptr[node+1])
+            neighbor_indices = np.arange(
+                adjacency_indptr[node], adjacency_indptr[node + 1]
+            )
             total_degree += np.sum(adjacency_data[neighbor_indices])
             # Add in label edge weights
             for index in neighbor_indices:
@@ -45,7 +47,7 @@ def conductance(adjacency, labels):
         adjacency.data,
         labels.indptr,
         labels.indices,
-        )
+    )
 
 
 def density(adjacency, labels):
@@ -56,13 +58,13 @@ def density(adjacency, labels):
     Empty clusters are given a score of 0."""
     density = np.empty(labels.shape[0])
     for i in range(labels.shape[0]):
-        nodes = labels.indices[labels.indptr[i]:labels.indptr[i+1]]
+        nodes = labels.indices[labels.indptr[i] : labels.indptr[i + 1]]
         if len(nodes) < 2:
             density[i] = np.nan
             continue
         label_subgraph = adjacency[nodes][:, nodes]
         internal_edges = np.sum(label_subgraph.data) // 2
-        density[i] = internal_edges / (len(nodes)*(len(nodes)-1))
+        density[i] = internal_edges / (len(nodes) * (len(nodes) - 1))
     return density
 
 
@@ -74,15 +76,17 @@ def _compute_expansion(
     labels_indptr,
     labels_indices,
 ):
-    expansion = np.empty(len(labels_indptr)-1)
-    for label in range(len(labels_indptr)-1):
-        if labels_indptr[label] == labels_indptr[label+1]:  #Empty cluster
+    expansion = np.empty(len(labels_indptr) - 1)
+    for label in range(len(labels_indptr) - 1):
+        if labels_indptr[label] == labels_indptr[label + 1]:  # Empty cluster
             expansion[label] = np.nan
             continue
-        nodes = labels_indices[labels_indptr[label]:labels_indptr[label+1]]
+        nodes = labels_indices[labels_indptr[label] : labels_indptr[label + 1]]
         boundary_degree = 0
         for node in nodes:
-            neighbor_indices = np.arange(adjacency_indptr[node], adjacency_indptr[node+1])
+            neighbor_indices = np.arange(
+                adjacency_indptr[node], adjacency_indptr[node + 1]
+            )
             # Add in label edge weights
             for index in neighbor_indices:
                 neighbor = adjacency_indices[index]
@@ -99,8 +103,48 @@ def expansion(adjacency, labels):
         adjacency.data,
         labels.indptr,
         labels.indices,
+    )
+
+
+@njit
+def _compute_cut_ratio(
+    adjacency_indptr,
+    adjacency_indices,
+    adjacency_data,
+    labels_indptr,
+    labels_indices,
+):
+    cut_ratio = np.empty(len(labels_indptr) - 1)
+    for label in range(len(labels_indptr) - 1):
+        if labels_indptr[label] == labels_indptr[label + 1]:  # Empty cluster
+            cut_ratio[label] = np.nan
+            continue
+        nodes = labels_indices[labels_indptr[label] : labels_indptr[label + 1]]
+        boundary_degree = 0
+        for node in nodes:
+            neighbor_indices = np.arange(
+                adjacency_indptr[node], adjacency_indptr[node + 1]
+            )
+            # Add in label edge weights
+            for index in neighbor_indices:
+                neighbor = adjacency_indices[index]
+                if neighbor not in nodes:
+                    boundary_degree += adjacency_data[index]
+        cut_ratio[label] = boundary_degree / (
+            len(nodes) * (len(adjacency_indptr) - 1 - len(nodes))
         )
-    
+    return cut_ratio
+
+
+def cut_ratio(adjacency, labels):
+    return _compute_cut_ratio(
+        adjacency.indptr,
+        adjacency.indices,
+        adjacency.data,
+        labels.indptr,
+        labels.indices,
+    )
+
 
 @njit
 def _compute_modularity(
@@ -110,24 +154,28 @@ def _compute_modularity(
     labels_indptr,
     labels_indices,
 ):
-    modularities = np.empty(len(labels_indptr)-1)
+    modularities = np.empty(len(labels_indptr) - 1)
     graph_volume = np.sum(adjacency_data)
-    for label in range(len(labels_indptr)-1):
-        if labels_indptr[label] == labels_indptr[label+1]:  #Empty cluster
+    for label in range(len(labels_indptr) - 1):
+        if labels_indptr[label] == labels_indptr[label + 1]:  # Empty cluster
             modularities[label] = np.nan
             continue
-        nodes = labels_indices[labels_indptr[label]:labels_indptr[label+1]]
+        nodes = labels_indices[labels_indptr[label] : labels_indptr[label + 1]]
         internal_degree = 0
         total_degree = 0
         for node in nodes:
-            neighbor_indices = np.arange(adjacency_indptr[node], adjacency_indptr[node+1])
+            neighbor_indices = np.arange(
+                adjacency_indptr[node], adjacency_indptr[node + 1]
+            )
             total_degree += np.sum(adjacency_data[neighbor_indices])
             # Add in label edge weights
             for index in neighbor_indices:
                 neighbor = adjacency_indices[index]
                 if neighbor in nodes:
                     internal_degree += adjacency_data[index]
-        modularities[label] = (internal_degree/graph_volume - (total_degree/graph_volume)**2) / 4
+        modularities[label] = (
+            internal_degree / graph_volume - (total_degree / graph_volume) ** 2
+        ) / 4
     return modularities
 
 
@@ -138,20 +186,19 @@ def modularity(adjacency, labels):
         adjacency.data,
         labels.indptr,
         labels.indices,
-        )
+    )
 
 
 def clustering_coefficient(adjacency, labels):
     cc = np.empty(labels.shape[0])
     for i in range(labels.shape[0]):
-        nodes = labels.indices[labels.indptr[i]:labels.indptr[i+1]]
+        nodes = labels.indices[labels.indptr[i] : labels.indptr[i + 1]]
         if len(nodes) < 3:
             cc[i] = np.nan
             continue
         label_subgraph = adjacency[nodes][:, nodes]
         cc[i] = sn.topology.get_clustering_coefficient(label_subgraph)
     return cc
-
 
 
 def cluster_f1s(labels, predict, drop_outliers=False):
@@ -161,7 +208,12 @@ def cluster_f1s(labels, predict, drop_outliers=False):
         predict = CAS.labels_array_to_matrix(predict)
 
     if labels.shape[0] == 0 or predict.shape[0] == 0:  # No clusters
-        return 0
+        if drop_outliers and (
+            np.all(predict.getnnz(0) == 0) or np.all(predict.getnnz(0) == 0)
+        ):
+            return 1
+        else:
+            return 0
 
     # Drop nodes with no clusters.
     if drop_outliers:
