@@ -175,7 +175,7 @@ def _compute_modularity(
                     internal_degree += adjacency_data[index]
         modularities[label] = (
             internal_degree / graph_volume - (total_degree / graph_volume) ** 2
-        ) / 4
+        )
     return modularities
 
 
@@ -232,16 +232,31 @@ def cluster_f1s(labels, predict, drop_outliers=False):
     predict_props = np.asarray(predict.sum(axis=1)).reshape(-1)
     predict_props = predict_props / np.sum(predict_props)
 
-    overlap = predict.astype("float64") * labels.transpose().astype("float64")
-    precision = overlap.multiply(1 / predict.sum(axis=1))
-    recall = overlap.multiply(1 / labels.sum(axis=1).reshape(-1))
-    denom = precision + recall
-    denom.data = 1 / denom.data
-    f1 = 2 * precision.multiply(recall).multiply(denom)
-    predict_f1 = f1.max(axis=1).toarray().reshape(-1)
-    predict_average = np.sum(predict_f1 * predict_props)
+    intersect = predict.astype("float64") * labels.transpose().astype("float64")
+    rs = np.asarray(predict.sum(axis=1)).reshape(-1)  # row sums
+    cs = np.asarray(labels.sum(axis=1)).reshape(-1)  # col sums
+    rd = sp.diags(rs)
+    cd = sp.diags(cs)
+    nz = intersect.copy()  # Store non-zero data indices
+    nz.data = np.ones_like(nz.data)
+    union = rd * nz + nz * cd - intersect  # union is |p| + |l| - |p and l|
+    union.data = 1/union.data
+    fs = intersect.multiply(union)
 
-    labels_f1 = f1.max(axis=0).toarray().reshape(-1)
-    labels_average = np.sum(labels_f1 * label_props)
+    predict_fs = fs.max(axis=1).toarray().reshape(-1)
+    predict_average = np.sum(predict_fs * predict_props)
+    labels_fs = fs.max(axis=0).toarray().reshape(-1)
+    labels_average = np.sum(labels_fs * label_props)
 
-    return 2 / (1 / predict_average + 1 / labels_average)
+    c1_outliers = predict.getnnz(0) == 0
+    c2_outliers = labels.getnnz(0) == 0
+    outlier_intersect = np.sum(c1_outliers * c2_outliers)
+    outlier_fs = 0
+    if outlier_intersect > 0:
+        outlier_fs = outlier_intersect / (np.sum(c1_outliers) + np.sum(c2_outliers) - outlier_intersect)
+
+    c1_outlier_prop = np.sum(c1_outliers) / len(c1_outliers)
+    c2_outlier_prop = np.sum(c2_outliers) / len(c2_outliers)
+
+    return 0.5 * (c1_outlier_prop * outlier_fs + (1-c1_outlier_prop)*predict_average) + 0.5 * (c2_outlier_prop * outlier_fs + (1-c2_outlier_prop)*labels_average)
+    
